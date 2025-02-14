@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Bar, BarChart, XAxis, YAxis, Tooltip, type TooltipProps, ResponsiveContainer } from "recharts"
 import { ChartContainer } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -13,7 +13,7 @@ import { AlertCircle } from "lucide-react"
 import * as XLSX from "xlsx"
 
 interface DataItem {
-  [key: string]: string // Dynamic columns
+  [key: string]: string
 }
 
 interface ProcessedDataItem {
@@ -21,28 +21,68 @@ interface ProcessedDataItem {
   [key: string]: string | number
 }
 
-const parseCSV = (csv: string): { headers: string[]; data: DataItem[] } => {
-  const lines = csv.split("\n")
-  const headers = lines[0].split(",").map((h) => h.trim())
-  const data = lines
-    .slice(1)
-    .map((line) => {
-      const values = line.split(",")
-      return headers.reduce((obj, header, index) => {
-        obj[header] = values[index]?.trim() || ""
-        return obj
-      }, {} as DataItem)
-    })
-    .filter((item) => Object.values(item).some((v) => v))
-  return { headers, data }
+interface FilterOption {
+  column: string
+  values: string[]
 }
 
-const processData = (data: DataItem[], conditionColumn: string, selectedColumns: string[]): ProcessedDataItem[] => {
+const parseFile = (
+  result: string | ArrayBuffer,
+  fileType: "csv" | "excel",
+): { headers: string[]; data: DataItem[] } => {
+  if (fileType === "csv") {
+    const lines = (result as string).split("\n")
+    const headers = lines[0].split(",").map((h) => h.trim())
+    const data = lines
+      .slice(1)
+      .map((line) => {
+        const values = line.split(",")
+        return headers.reduce((obj, header, index) => {
+          obj[header] = values[index]?.trim() || ""
+          return obj
+        }, {} as DataItem)
+      })
+      .filter((item) => Object.values(item).some((v) => v))
+    return { headers, data }
+  } else {
+    const workbook = XLSX.read(result, { type: "binary" })
+    const sheetName = workbook.SheetNames[0]
+    const sheet = workbook.Sheets[sheetName]
+    const rawJsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+
+    const headers = (rawJsonData[0] as string[]).map((h) => h.trim())
+    const data = (rawJsonData.slice(1) as any[])
+      .map((row) => {
+        const item: DataItem = {}
+        headers.forEach((header, index) => {
+          item[header] = row[index]?.toString() || ""
+        })
+        return item
+      })
+      .filter((item) => Object.values(item).some((v) => v))
+    return { headers, data }
+  }
+}
+
+const processData = (
+  data: DataItem[],
+  conditionColumn: string,
+  selectedColumns: string[],
+  filters: Record<string, string[]>,
+): ProcessedDataItem[] => {
   if (!data || data.length === 0) return []
+
+  // Apply filters
+  const filteredData = data.filter((item) => {
+    return Object.entries(filters).every(([column, values]) => {
+      if (values.length === 0) return true
+      return values.includes(item[column])
+    })
+  })
 
   const conditionCounts: { [key: string]: { total: number; counts: { [key: string]: number } } } = {}
 
-  data.forEach((item) => {
+  filteredData.forEach((item) => {
     if (!item[conditionColumn]) return
 
     const conditions = item[conditionColumn].split(", ")
@@ -89,36 +129,49 @@ const processData = (data: DataItem[], conditionColumn: string, selectedColumns:
     .slice(0, 20)
 }
 
+const getFilterOptions = (data: DataItem[]): FilterOption[] => {
+  const options: Record<string, Set<string>> = {}
+
+  data.forEach((item) => {
+    Object.entries(item).forEach(([key, value]) => {
+      if (!options[key]) options[key] = new Set()
+      if (value) options[key].add(value)
+    })
+  })
+
+  return Object.entries(options)
+    .filter(([_, values]) => values.size > 1 && values.size <= 10) // Only include columns with 2-10 unique values
+    .map(([column, values]) => ({
+      column,
+      values: Array.from(values).sort(),
+    }))
+}
+
 export default function LikertChart() {
   const [availableColumns, setAvailableColumns] = useState<string[]>([])
   const [conditionColumn, setConditionColumn] = useState<string>("")
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [rawData, setRawData] = useState<DataItem[]>([])
   const [data, setData] = useState<ProcessedDataItem[]>([])
-  const [filter, setFilter] = useState("")
+  const [filters, setFilters] = useState<Record<string, string[]>>({})
   const [error, setError] = useState<string | null>(null)
+
+  const filterOptions = useMemo(() => getFilterOptions(rawData), [rawData])
 
   useEffect(() => {
     if (conditionColumn && selectedColumns.length > 0) {
       const timer = setTimeout(() => {
-        updateChartData()
+        try {
+          const processedData = processData(rawData, conditionColumn, selectedColumns, filters)
+          setData(processedData)
+        } catch (err) {
+          console.error("Error processing data:", err)
+          setError("Error processing data. Please check the console for details.")
+        }
       }, 300)
       return () => clearTimeout(timer)
     }
-  }, [selectedColumns, conditionColumn]) // Removed unnecessary dependencies: rawData, filter
-
-  const updateChartData = () => {
-    try {
-      const filteredData = rawData.filter(
-        (item) => item[conditionColumn] && item[conditionColumn].toLowerCase().includes(filter.toLowerCase()),
-      )
-      const processedData = processData(filteredData, conditionColumn, selectedColumns)
-      setData(processedData)
-    } catch (err) {
-      console.error("Error updating chart data:", err)
-      setError("An error occurred while updating the chart. Please check the console for more details.")
-    }
-  }
+  }, [selectedColumns, conditionColumn, rawData, filters])
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -129,37 +182,14 @@ export default function LikertChart() {
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
-        let headers: string[]
-        let parsedData: DataItem[]
-
-        if (file.name.endsWith(".csv")) {
-          const result = parseCSV(e.target?.result as string)
-          headers = result.headers
-          parsedData = result.data
-        } else if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
-          const workbook = XLSX.read(e.target?.result, { type: "binary" })
-          const sheetName = workbook.SheetNames[0]
-          const sheet = workbook.Sheets[sheetName]
-          const rawJsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 })
-
-          headers = (rawJsonData[0] as string[]).map((h) => h.trim())
-          parsedData = (rawJsonData.slice(1) as any[])
-            .map((row) => {
-              const item: DataItem = {}
-              headers.forEach((header, index) => {
-                item[header] = row[index]?.toString() || ""
-              })
-              return item
-            })
-            .filter((item) => Object.values(item).some((v) => v))
-        } else {
-          throw new Error("Unsupported file type")
-        }
+        const fileType = file.name.endsWith(".csv") ? "csv" : "excel"
+        const { headers, data } = parseFile(e.target?.result as string | ArrayBuffer, fileType)
 
         setAvailableColumns(headers)
         setConditionColumn(headers[0])
-        setSelectedColumns(headers.slice(1, 4)) // Default to first three columns after condition
-        setRawData(parsedData)
+        setSelectedColumns(headers.slice(1, 4))
+        setRawData(data)
+        setFilters({})
       } catch (err) {
         console.error("Error parsing file:", err)
         setError("Error parsing file. Please check the format and try again.")
@@ -175,19 +205,9 @@ export default function LikertChart() {
     }
   }
 
-  const generateColors = (count: number) => {
-    const baseHues = [215, 338, 150, 45, 280]
-    return Array.from({ length: count }, (_, i) => {
-      const hue = baseHues[i % baseHues.length]
-      const saturation = 70 + (i % 2) * 10
-      const lightness = 65 + (i % 3) * 5
-      return `hsl(${hue}, ${saturation}%, ${lightness}%)`
-    })
-  }
+  const colors = ["hsl(43, 74%, 66%)", "hsl(168, 42%, 73%)", "hsl(220, 14%, 80%)"]
 
-  const colors = Object.fromEntries(selectedColumns.map((col, i) => [col, generateColors(selectedColumns.length)[i]]))
-
-  const chartConfig = Object.fromEntries(Object.entries(colors).map(([key, color]) => [key, { color }]))
+  const chartConfig = Object.fromEntries(selectedColumns.map((col, i) => [col, { color: colors[i % colors.length] }]))
 
   return (
     <div className="space-y-4">
@@ -222,43 +242,33 @@ export default function LikertChart() {
               </Select>
             </div>
 
-            <div className="flex space-x-4">
-              {[0, 1, 2].map((index) => (
-                <div key={index} className="flex-1">
-                  <Label htmlFor={`column-${index}`}>Column {index + 1}</Label>
+            <div className="grid grid-cols-2 gap-4">
+              {filterOptions.map((option) => (
+                <div key={option.column}>
+                  <Label htmlFor={`filter-${option.column}`}>{option.column}</Label>
                   <Select
-                    value={selectedColumns[index] || ""}
+                    value={filters[option.column]?.[0] || "All"}
                     onValueChange={(value) => {
-                      const newColumns = [...selectedColumns]
-                      newColumns[index] = value
-                      setSelectedColumns(newColumns)
+                      setFilters((prev) => ({
+                        ...prev,
+                        [option.column]: value === "All" ? [] : [value],
+                      }))
                     }}
                   >
-                    <SelectTrigger id={`column-${index}`}>
-                      <SelectValue>{selectedColumns[index] || "Select column"}</SelectValue>
+                    <SelectTrigger id={`filter-${option.column}`}>
+                      <SelectValue placeholder="All" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableColumns
-                        .filter((col) => col !== conditionColumn)
-                        .map((col) => (
-                          <SelectItem key={col} value={col}>
-                            {col}
-                          </SelectItem>
-                        ))}
+                      <SelectItem value="All">All</SelectItem>
+                      {option.values.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {value}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               ))}
-            </div>
-
-            <div>
-              <Label htmlFor="filter">Filter Conditions</Label>
-              <Input
-                id="filter"
-                placeholder="Enter condition to filter..."
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
             </div>
           </div>
 
@@ -290,7 +300,12 @@ export default function LikertChart() {
                     <YAxis dataKey="condition" type="category" width={180} tick={{ fontSize: 12 }} />
                     <Tooltip content={<CustomTooltip rawData={rawData} selectedColumns={selectedColumns} />} />
                     {selectedColumns.map((column) => (
-                      <Bar key={column} dataKey={column} stackId="a" fill={colors[column]} />
+                      <Bar
+                        key={column}
+                        dataKey={column}
+                        stackId="a"
+                        fill={colors[selectedColumns.indexOf(column) % colors.length]}
+                      />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
