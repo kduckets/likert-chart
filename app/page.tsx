@@ -1,4 +1,5 @@
 import LikertChart from "@/components/likert-chart"
+import PivotChart from "@/components/pivot-chart"
 
 export default function Home() {
   return (

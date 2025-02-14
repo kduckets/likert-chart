@@ -359,13 +359,34 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label, r
     const isNumeric = !isNaN(Number.parseFloat(rawData[0]?.[firstCol] || ""))
 
     return (
-      <div className="bg-white p-2 border border-gray-300 rounded shadow">
-        <p className="font-bold">{label}</p>
-        {payload.map((entry, index) => (
-          <p key={index} style={{ color: entry.color }}>
-            {entry.name}: {isNumeric ? entry.value.toFixed(1) : `${(entry.value * 100).toFixed(1)}%`}
-          </p>
-        ))}
+      <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
+        <p className="font-bold text-base border-b pb-2 mb-2">{label}</p>
+        {payload.map((entry, index) => {
+          const value = isNumeric ? entry.value.toFixed(1) : `${(entry.value * 100).toFixed(1)}%`
+
+          // Format the entry name to be more readable
+          const formattedName = entry.name
+            .replace(/([A-Z])/g, " $1") // Add space before capital letters
+            .replace(/^./, (str) => str.toUpperCase()) // Capitalize first letter
+
+          return (
+            <div key={index} className="flex items-center justify-between gap-4 py-1">
+              <span className="text-sm text-gray-600">{formattedName}:</span>
+              <span className="font-medium" style={{ color: entry.color }}>
+                {value}
+              </span>
+            </div>
+          )
+        })}
+        {/* Add total if showing percentages */}
+        {!isNumeric && (
+          <div className="border-t mt-2 pt-2">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-gray-600">Total:</span>
+              <span className="font-medium">{payload.reduce((sum, entry) => sum + entry.value, 0).toFixed(1)}%</span>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
