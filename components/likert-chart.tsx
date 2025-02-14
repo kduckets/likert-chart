@@ -9,7 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle } from "lucide-react"
+import { AlertCircle, ChevronDown, ChevronUp } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import * as XLSX from "xlsx"
 
 interface DataItem {
@@ -139,12 +141,10 @@ const getFilterOptions = (data: DataItem[]): FilterOption[] => {
     })
   })
 
-  return Object.entries(options)
-    .filter(([_, values]) => values.size > 1 && values.size <= 10) // Only include columns with 2-10 unique values
-    .map(([column, values]) => ({
-      column,
-      values: Array.from(values).sort(),
-    }))
+  return Object.entries(options).map(([column, values]) => ({
+    column,
+    values: Array.from(values).sort(),
+  }))
 }
 
 export default function LikertChart() {
@@ -155,6 +155,7 @@ export default function LikertChart() {
   const [data, setData] = useState<ProcessedDataItem[]>([])
   const [filters, setFilters] = useState<Record<string, string[]>>({})
   const [error, setError] = useState<string | null>(null)
+  const [showFilters, setShowFilters] = useState(false)
 
   const filterOptions = useMemo(() => getFilterOptions(rawData), [rawData])
 
@@ -242,34 +243,54 @@ export default function LikertChart() {
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              {filterOptions.map((option) => (
-                <div key={option.column}>
-                  <Label htmlFor={`filter-${option.column}`}>{option.column}</Label>
-                  <Select
-                    value={filters[option.column]?.[0] || "All"}
-                    onValueChange={(value) => {
-                      setFilters((prev) => ({
-                        ...prev,
-                        [option.column]: value === "All" ? [] : [value],
-                      }))
-                    }}
-                  >
-                    <SelectTrigger id={`filter-${option.column}`}>
-                      <SelectValue placeholder="All" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All</SelectItem>
+            <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="w-full">
+              {showFilters ? (
+                <>
+                  Hide Filters
+                  <ChevronUp className="ml-2 h-4 w-4" />
+                </>
+              ) : (
+                <>
+                  Show Filters
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+
+            {showFilters && (
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                {filterOptions.map((option) => (
+                  <div key={option.column} className="space-y-2">
+                    <Label>{option.column}</Label>
+                    <div className="max-h-40 overflow-y-auto border rounded p-2">
                       {option.values.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {value}
-                        </SelectItem>
+                        <div key={value} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`${option.column}-${value}`}
+                            checked={filters[option.column]?.includes(value)}
+                            onCheckedChange={(checked) => {
+                              setFilters((prev) => {
+                                const newFilters = { ...prev }
+                                if (!newFilters[option.column]) {
+                                  newFilters[option.column] = []
+                                }
+                                if (checked) {
+                                  newFilters[option.column].push(value)
+                                } else {
+                                  newFilters[option.column] = newFilters[option.column].filter((v) => v !== value)
+                                }
+                                return newFilters
+                              })
+                            }}
+                          />
+                          <Label htmlFor={`${option.column}-${value}`}>{value}</Label>
+                        </div>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {data.length > 0 ? (
