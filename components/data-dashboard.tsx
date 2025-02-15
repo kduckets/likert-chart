@@ -109,7 +109,6 @@ export default function DataDashboard() {
         <>
           <div className="space-y-8">
             <section>
-              <h2 className="text-2xl font-semibold mb-4">Likert Chart</h2>
               <LikertChart headers={headers} data={data} />
             </section>
 
