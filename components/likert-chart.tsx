@@ -1,15 +1,16 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect, useMemo } from "react"
 import { Bar, BarChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from "recharts"
+import { motion, AnimatePresence } from "framer-motion"
 import { ChartContainer } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ChevronDown, ChevronUp } from "lucide-react"
+import { ChevronDown, ChevronUp, X } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 
 interface DataItem {
   [key: string]: string
@@ -42,7 +43,6 @@ const processData = (
 ): { data: ProcessedDataItem[]; categories: { left: string; right: string } } => {
   if (!data || data.length === 0 || !responseColumn) return { data: [], categories: { left: "", right: "" } }
 
-  // Apply filters
   const filteredData = data.filter((item) => {
     return Object.entries(filters).every(([column, values]) => {
       if (!values || values.length === 0) return true
@@ -51,7 +51,6 @@ const processData = (
     })
   })
 
-  // Get unique response values
   const uniqueResponses = Array.from(new Set(filteredData.map((item) => item[responseColumn])))
     .filter(Boolean)
     .sort()
@@ -63,14 +62,7 @@ const processData = (
 
   const [leftCategory, rightCategory] = uniqueResponses
 
-  const stats: Record<
-    string,
-    {
-      left: number
-      right: number
-      total: number
-    }
-  > = {}
+  const stats: Record<string, { left: number; right: number; total: number }> = {}
 
   filteredData.forEach((item) => {
     const condition = item[conditionColumn]
@@ -100,7 +92,7 @@ const processData = (
       rightLabel: rightCategory,
       total: counts.total,
     }))
-    .sort((a, b) => b.total - a.total) // Sort by total count instead
+    .sort((a, b) => b.total - a.total)
 
   return {
     data: processedData,
@@ -111,8 +103,7 @@ const processData = (
   }
 }
 
-const getFilterOptions = (data: DataItem[]): FilterOption[] => {
-  // Skip the columns used for condition and response
+const getFilterOptions = (data: DataItem[], conditionColumn: string, responseColumn: string): FilterOption[] => {
   const skipColumns = new Set([conditionColumn, responseColumn])
   const options: Record<string, Set<string>> = {}
 
@@ -126,7 +117,7 @@ const getFilterOptions = (data: DataItem[]): FilterOption[] => {
   })
 
   return Object.entries(options)
-    .filter(([_, values]) => values.size > 1) // Only include columns with multiple values
+    .filter(([_, values]) => values.size > 1)
     .map(([column, values]) => ({
       column,
       values: Array.from(values).sort(),
@@ -134,8 +125,8 @@ const getFilterOptions = (data: DataItem[]): FilterOption[] => {
 }
 
 const COLORS = {
-  left: "#e3c19a", // Softer peach/tan color
-  right: "#7fb5b5", // Muted teal color
+  left: "#6366f1", // Indigo
+  right: "#8b5cf6", // Purple
 }
 
 export default function LikertChart({ headers, data }: LikertChartProps) {
@@ -146,11 +137,14 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
   const [filters, setFilters] = useState<Record<string, string[]>>({})
   const [showFilters, setShowFilters] = useState(false)
 
-  const filterOptions = useMemo(() => getFilterOptions(data), [data])
+  const filterOptions = useMemo(
+    () => getFilterOptions(data, conditionColumn, responseColumn),
+    [data, conditionColumn, responseColumn],
+  )
 
   useEffect(() => {
     setFilters({})
-  }, [conditionColumn, responseColumn])
+  }, [responseColumn])
 
   useEffect(() => {
     if (conditionColumn && responseColumn) {
@@ -167,14 +161,18 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
     }
   }, [responseColumn, conditionColumn, data, filters])
 
+  const activeFilters = Object.entries(filters).filter(([_, values]) => values.length > 0)
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6 p-6 bg-white rounded-xl shadow-lg">
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="condition-column">Condition Column</Label>
+            <Label htmlFor="condition-column" className="text-sm font-medium text-gray-700">
+              Condition Column
+            </Label>
             <Select value={conditionColumn} onValueChange={setConditionColumn}>
-              <SelectTrigger id="condition-column">
+              <SelectTrigger id="condition-column" className="mt-1">
                 <SelectValue>{conditionColumn}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -188,9 +186,11 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
           </div>
 
           <div>
-            <Label htmlFor="response-column">Compare Column</Label>
+            <Label htmlFor="response-column" className="text-sm font-medium text-gray-700">
+              Compare Column
+            </Label>
             <Select value={responseColumn} onValueChange={setResponseColumn}>
-              <SelectTrigger id="response-column">
+              <SelectTrigger id="response-column" className="mt-1">
                 <SelectValue>{responseColumn}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -206,7 +206,11 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
           </div>
         </div>
 
-        <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="w-full">
+        <Button
+          variant="outline"
+          onClick={() => setShowFilters(!showFilters)}
+          className="w-full mt-4 bg-gray-50 hover:bg-gray-100 text-gray-700"
+        >
           {showFilters ? (
             <>
               Hide Filters
@@ -220,44 +224,81 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
           )}
         </Button>
 
-        {showFilters && (
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            {filterOptions.map((option) => (
-              <div key={option.column} className="space-y-2">
-                <Label>{option.column}</Label>
-                <div className="max-h-40 overflow-y-auto border rounded p-2">
-                  {option.values.map((value) => (
-                    <div key={value} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`${option.column}-${value}`}
-                        checked={filters[option.column]?.includes(value)}
-                        onCheckedChange={(checked) => {
-                          setFilters((prev) => {
-                            const newFilters = { ...prev }
-                            if (!newFilters[option.column]) {
-                              newFilters[option.column] = []
-                            }
-                            if (checked) {
-                              newFilters[option.column].push(value)
-                            } else {
-                              newFilters[option.column] = newFilters[option.column].filter((v) => v !== value)
-                            }
-                            return newFilters
-                          })
-                        }}
-                      />
-                      <Label htmlFor={`${option.column}-${value}`}>{value}</Label>
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.3 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                {filterOptions.map((option) => (
+                  <div key={option.column} className="space-y-2">
+                    <Label className="text-sm font-medium text-gray-700">{option.column}</Label>
+                    <div className="max-h-40 overflow-y-auto border rounded-md p-2 bg-gray-50">
+                      {option.values.map((value) => (
+                        <div key={value} className="flex items-center space-x-2 py-1">
+                          <Checkbox
+                            id={`${option.column}-${value}`}
+                            checked={filters[option.column]?.includes(value)}
+                            onCheckedChange={(checked) => {
+                              setFilters((prev) => {
+                                const newFilters = { ...prev }
+                                if (!newFilters[option.column]) {
+                                  newFilters[option.column] = []
+                                }
+                                if (checked) {
+                                  newFilters[option.column].push(value)
+                                } else {
+                                  newFilters[option.column] = newFilters[option.column].filter((v) => v !== value)
+                                }
+                                return newFilters
+                              })
+                            }}
+                          />
+                          <Label htmlFor={`${option.column}-${value}`} className="text-sm text-gray-600">
+                            {value}
+                          </Label>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {activeFilters.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-4">
+            {activeFilters.map(([column, values]) =>
+              values.map((value) => (
+                <Badge key={`${column}-${value}`} variant="secondary" className="text-xs">
+                  {column}: {value}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-4 w-4 p-0 ml-1"
+                    onClick={() => {
+                      setFilters((prev) => ({
+                        ...prev,
+                        [column]: prev[column].filter((v) => v !== value),
+                      }))
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </Badge>
+              )),
+            )}
           </div>
         )}
       </div>
 
       {processedData.length > 0 ? (
-        <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
+        <div className="rounded-lg border bg-white shadow-sm overflow-hidden">
           <ChartContainer className="h-[800px] p-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
@@ -273,14 +314,20 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
                 barGap={0}
                 stackOffset="sign"
               >
-                <XAxis type="number" domain={["auto", "auto"]} tickFormatter={(value) => `${Math.abs(value)}`} />
+                <XAxis
+                  type="number"
+                  domain={["auto", "auto"]}
+                  tickFormatter={(value) => `${Math.abs(value)}`}
+                  stroke="#888"
+                  fontSize={12}
+                />
                 <YAxis
                   dataKey="condition"
                   type="category"
                   width={220}
                   tick={({ x, y, payload }) => (
                     <g transform={`translate(${x},${y})`}>
-                      <text x={-10} y={0} dy={4} textAnchor="end" fill="hsl(var(--foreground))" fontSize={12}>
+                      <text x={-10} y={0} dy={4} textAnchor="end" fill="#333" fontSize={12} fontWeight={500}>
                         {payload.value.length > 40 ? payload.value.substring(0, 40) + "..." : payload.value}
                       </text>
                     </g>
@@ -288,7 +335,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
                   tickLine={false}
                 />
                 <Tooltip content={<CustomTooltip categories={categories} />} />
-                <ReferenceLine x={0} stroke="#666" />
+                <ReferenceLine x={0} stroke="#888" />
 
                 <Bar stackId="stack" dataKey="leftValue" fill={COLORS.left} name={categories.left}>
                   {processedData.map((entry, index) => (
@@ -305,7 +352,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
           </ChartContainer>
         </div>
       ) : (
-        <div className="text-center py-10">
+        <div className="text-center py-10 text-gray-500">
           <p>Please select both a condition column and a response column to display the chart.</p>
         </div>
       )}
@@ -331,25 +378,25 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label, c
   if (active && payload && payload.length) {
     const data = payload[0].payload
     return (
-      <div className="bg-background p-4 border rounded-lg shadow-lg">
-        <p className="font-semibold text-base border-b pb-2 mb-2">{data.condition}</p>
+      <div className="bg-white p-4 border rounded-lg shadow-lg">
+        <p className="font-semibold text-base border-b pb-2 mb-2 text-gray-800">{data.condition}</p>
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-4">
-            <span className="text-sm text-muted-foreground">{categories.left}:</span>
+            <span className="text-sm text-gray-600">{categories.left}:</span>
             <span className="font-medium" style={{ color: COLORS.left }}>
               {Math.abs(data.leftValue)}
             </span>
           </div>
           <div className="flex items-center justify-between gap-4">
-            <span className="text-sm text-muted-foreground">{categories.right}:</span>
+            <span className="text-sm text-gray-600">{categories.right}:</span>
             <span className="font-medium" style={{ color: COLORS.right }}>
               {data.rightValue}
             </span>
           </div>
           <div className="border-t pt-2 mt-2">
             <div className="flex items-center justify-between gap-4">
-              <span className="text-sm font-medium">Total responses:</span>
-              <span className="font-medium">{data.total}</span>
+              <span className="text-sm font-medium text-gray-700">Total responses:</span>
+              <span className="font-medium text-gray-900">{data.total}</span>
             </div>
           </div>
         </div>
