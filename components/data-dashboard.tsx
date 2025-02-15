@@ -113,10 +113,10 @@ export default function DataDashboard() {
               <LikertChart headers={headers} data={data} />
             </section>
 
-            <section>
+            {/* <section>
               <h2 className="text-2xl font-semibold mb-4">Pivot Chart</h2>
               <PivotChart headers={headers} data={data} />
-            </section>
+            </section> */}
           </div>
         </>
       )}

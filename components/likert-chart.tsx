@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useMemo } from "react"
-import { Bar, BarChart, XAxis, YAxis, Tooltip, type TooltipProps, ResponsiveContainer } from "recharts"
+import { Bar, BarChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from "recharts"
 import { ChartContainer } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
@@ -17,7 +17,11 @@ interface DataItem {
 
 interface ProcessedDataItem {
   condition: string
-  [key: string]: string | number
+  leftValue: number
+  rightValue: number
+  leftLabel: string
+  rightLabel: string
+  total: number
 }
 
 interface FilterOption {
@@ -33,128 +37,173 @@ interface LikertChartProps {
 const processData = (
   data: DataItem[],
   conditionColumn: string,
-  selectedColumns: string[],
+  responseColumn: string,
   filters: Record<string, string[]>,
-): ProcessedDataItem[] => {
-  if (!data || data.length === 0) return []
+): { data: ProcessedDataItem[]; categories: { left: string; right: string } } => {
+  if (!data || data.length === 0 || !responseColumn) return { data: [], categories: { left: "", right: "" } }
 
   // Apply filters
   const filteredData = data.filter((item) => {
     return Object.entries(filters).every(([column, values]) => {
-      if (values.length === 0) return true
-      return values.includes(item[column])
+      if (!values || values.length === 0) return true
+      const itemValue = item[column]?.trim()
+      return itemValue && values.includes(itemValue)
     })
   })
 
-  const conditionCounts: { [key: string]: { total: number; counts: { [key: string]: number } } } = {}
+  // Get unique response values
+  const uniqueResponses = Array.from(new Set(filteredData.map((item) => item[responseColumn])))
+    .filter(Boolean)
+    .sort()
+
+  if (uniqueResponses.length < 2) {
+    console.error("Not enough unique responses to create a comparison")
+    return { data: [], categories: { left: "", right: "" } }
+  }
+
+  const [leftCategory, rightCategory] = uniqueResponses
+
+  const stats: Record<
+    string,
+    {
+      left: number
+      right: number
+      total: number
+    }
+  > = {}
 
   filteredData.forEach((item) => {
-    if (!item[conditionColumn]) return
+    const condition = item[conditionColumn]
+    const response = item[responseColumn]
 
-    const conditions = item[conditionColumn].split(", ")
-    conditions.forEach((condition) => {
-      if (!conditionCounts[condition]) {
-        conditionCounts[condition] = { total: 0, counts: {} }
-        selectedColumns.forEach((col) => (conditionCounts[condition].counts[col] = 0))
-      }
-      conditionCounts[condition].total++
+    if (!condition || !response) return
 
-      selectedColumns.forEach((col) => {
-        const value = item[col]
-        if (value) {
-          const numValue = Number.parseFloat(value)
-          if (!isNaN(numValue)) {
-            conditionCounts[condition].counts[col] += numValue
-          } else {
-            conditionCounts[condition].counts[col]++
-          }
-        }
-      })
-    })
+    if (!stats[condition]) {
+      stats[condition] = { left: 0, right: 0, total: 0 }
+    }
+
+    stats[condition].total++
+
+    if (response === leftCategory) {
+      stats[condition].left++
+    } else if (response === rightCategory) {
+      stats[condition].right++
+    }
   })
 
-  return Object.entries(conditionCounts)
-    .map(([condition, { total, counts }]) => ({
+  const processedData = Object.entries(stats)
+    .map(([condition, counts]) => ({
       condition,
-      ...Object.fromEntries(
-        selectedColumns.map((col) => {
-          const isNumeric = !isNaN(Number.parseFloat(data[0]?.[col] || ""))
-          if (isNumeric) {
-            return [col, counts[col] / total || 0]
-          } else {
-            return [col, (counts[col] / total) * 100 || 0]
-          }
-        }),
-      ),
+      leftValue: -counts.left,
+      rightValue: counts.right,
+      leftLabel: leftCategory,
+      rightLabel: rightCategory,
+      total: counts.total,
     }))
-    .sort((a, b) => {
-      const aValue = a[selectedColumns[0]] as number
-      const bValue = b[selectedColumns[0]] as number
-      return (bValue || 0) - (aValue || 0)
-    })
-    .slice(0, 20)
+    .sort((a, b) => b.total - a.total) // Sort by total count instead
+
+  return {
+    data: processedData,
+    categories: {
+      left: leftCategory,
+      right: rightCategory,
+    },
+  }
 }
 
 const getFilterOptions = (data: DataItem[]): FilterOption[] => {
+  // Skip the columns used for condition and response
+  const skipColumns = new Set([conditionColumn, responseColumn])
   const options: Record<string, Set<string>> = {}
 
   data.forEach((item) => {
     Object.entries(item).forEach(([key, value]) => {
-      if (!options[key]) options[key] = new Set()
-      if (value) options[key].add(value)
+      if (!skipColumns.has(key) && value && value.trim() !== "") {
+        if (!options[key]) options[key] = new Set()
+        options[key].add(value.trim())
+      }
     })
   })
 
-  return Object.entries(options).map(([column, values]) => ({
-    column,
-    values: Array.from(values).sort(),
-  }))
+  return Object.entries(options)
+    .filter(([_, values]) => values.size > 1) // Only include columns with multiple values
+    .map(([column, values]) => ({
+      column,
+      values: Array.from(values).sort(),
+    }))
+}
+
+const COLORS = {
+  left: "#e3c19a", // Softer peach/tan color
+  right: "#7fb5b5", // Muted teal color
 }
 
 export default function LikertChart({ headers, data }: LikertChartProps) {
   const [conditionColumn, setConditionColumn] = useState<string>(headers[0] || "")
-  const [selectedColumns, setSelectedColumns] = useState<string[]>(headers.slice(1, 4))
+  const [responseColumn, setResponseColumn] = useState<string>("")
   const [processedData, setProcessedData] = useState<ProcessedDataItem[]>([])
+  const [categories, setCategories] = useState<{ left: string; right: string }>({ left: "", right: "" })
   const [filters, setFilters] = useState<Record<string, string[]>>({})
   const [showFilters, setShowFilters] = useState(false)
 
   const filterOptions = useMemo(() => getFilterOptions(data), [data])
 
   useEffect(() => {
-    if (conditionColumn && selectedColumns.length > 0) {
+    setFilters({})
+  }, [conditionColumn, responseColumn])
+
+  useEffect(() => {
+    if (conditionColumn && responseColumn) {
       const timer = setTimeout(() => {
         try {
-          const processed = processData(data, conditionColumn, selectedColumns, filters)
-          setProcessedData(processed)
+          const result = processData(data, conditionColumn, responseColumn, filters)
+          setProcessedData(result.data)
+          setCategories(result.categories)
         } catch (err) {
           console.error("Error processing data:", err)
         }
       }, 300)
       return () => clearTimeout(timer)
     }
-  }, [selectedColumns, conditionColumn, data, filters])
-
-  const colors = ["hsl(43, 74%, 66%)", "hsl(168, 42%, 73%)", "hsl(220, 14%, 80%)"]
-
-  const chartConfig = Object.fromEntries(selectedColumns.map((col, i) => [col, { color: colors[i % colors.length] }]))
+  }, [responseColumn, conditionColumn, data, filters])
 
   return (
     <div className="space-y-4">
       <div className="space-y-4">
-        <div>
-          <Label htmlFor="condition-column">Condition Column</Label>
-          <Select value={conditionColumn} onValueChange={setConditionColumn}>
-            <SelectTrigger id="condition-column">
-              <SelectValue>{conditionColumn}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {headers.map((col) => (
-                <SelectItem key={col} value={col}>
-                  {col}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="condition-column">Condition Column</Label>
+            <Select value={conditionColumn} onValueChange={setConditionColumn}>
+              <SelectTrigger id="condition-column">
+                <SelectValue>{conditionColumn}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {headers.map((col) => (
+                  <SelectItem key={col} value={col}>
+                    {col}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label htmlFor="response-column">Compare Column</Label>
+            <Select value={responseColumn} onValueChange={setResponseColumn}>
+              <SelectTrigger id="response-column">
+                <SelectValue>{responseColumn}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {headers
+                  .filter((header) => header !== conditionColumn)
+                  .map((col) => (
+                    <SelectItem key={col} value={col}>
+                      {col}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="w-full">
@@ -209,100 +258,104 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
 
       {processedData.length > 0 ? (
         <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
-          <ChartContainer className="h-[800px] p-4" config={chartConfig}>
+          <ChartContainer className="h-[800px] p-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={processedData}
                 layout="vertical"
-                stackOffset="expand"
-                barGap={0}
-                barCategoryGap={8}
                 margin={{
                   top: 20,
-                  right: 40,
+                  right: 60,
                   bottom: 20,
-                  left: 200,
+                  left: 240,
                 }}
+                barSize={20}
+                barGap={0}
+                stackOffset="sign"
               >
-                <XAxis
-                  type="number"
-                  tickFormatter={(value) => {
-                    const firstCol = selectedColumns[0]
-                    const isNumeric = !isNaN(Number.parseFloat(data[0]?.[firstCol] || ""))
-                    return isNumeric ? value.toFixed(1) : `${(value * 100).toFixed(1)}%`
-                  }}
+                <XAxis type="number" domain={["auto", "auto"]} tickFormatter={(value) => `${Math.abs(value)}`} />
+                <YAxis
+                  dataKey="condition"
+                  type="category"
+                  width={220}
+                  tick={({ x, y, payload }) => (
+                    <g transform={`translate(${x},${y})`}>
+                      <text x={-10} y={0} dy={4} textAnchor="end" fill="hsl(var(--foreground))" fontSize={12}>
+                        {payload.value.length > 40 ? payload.value.substring(0, 40) + "..." : payload.value}
+                      </text>
+                    </g>
+                  )}
+                  tickLine={false}
                 />
-                <YAxis dataKey="condition" type="category" width={180} tick={{ fontSize: 12 }} />
-                <Tooltip content={<CustomTooltip rawData={data} selectedColumns={selectedColumns} />} />
-                {selectedColumns.map((column) => (
-                  <Bar
-                    key={column}
-                    dataKey={column}
-                    stackId="a"
-                    fill={colors[selectedColumns.indexOf(column) % colors.length]}
-                  />
-                ))}
+                <Tooltip content={<CustomTooltip categories={categories} />} />
+                <ReferenceLine x={0} stroke="#666" />
+
+                <Bar stackId="stack" dataKey="leftValue" fill={COLORS.left} name={categories.left}>
+                  {processedData.map((entry, index) => (
+                    <Cell key={`left-${index}`} fill={COLORS.left} />
+                  ))}
+                </Bar>
+                <Bar stackId="stack" dataKey="rightValue" fill={COLORS.right} name={categories.right}>
+                  {processedData.map((entry, index) => (
+                    <Cell key={`right-${index}`} fill={COLORS.right} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </ChartContainer>
         </div>
       ) : (
         <div className="text-center py-10">
-          <p>No data to display. Please check your column selections and filter settings.</p>
+          <p>Please select both a condition column and a response column to display the chart.</p>
         </div>
       )}
     </div>
   )
 }
 
-interface CustomTooltipProps extends Omit<TooltipProps<number, string>, "payload"> {
+interface CustomTooltipProps {
+  active?: boolean
   payload?: Array<{
     name: string
     value: number
-    color: string
+    payload: ProcessedDataItem
   }>
-  rawData: DataItem[]
-  selectedColumns: string[]
+  label?: string
+  categories: {
+    left: string
+    right: string
+  }
 }
 
-const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label, rawData, selectedColumns }) => {
+const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label, categories }) => {
   if (active && payload && payload.length) {
-    const firstCol = selectedColumns[0]
-    const isNumeric = !isNaN(Number.parseFloat(rawData[0]?.[firstCol] || ""))
-
+    const data = payload[0].payload
     return (
-      <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-        <p className="font-bold text-base border-b pb-2 mb-2">{label}</p>
-        {payload.map((entry, index) => {
-          const value = isNumeric ? entry.value.toFixed(1) : `${(entry.value * 100).toFixed(1)}%`
-
-          // Format the entry name to be more readable
-          const formattedName = entry.name
-            .replace(/([A-Z])/g, " $1") // Add space before capital letters
-            .replace(/^./, (str) => str.toUpperCase()) // Capitalize first letter
-
-          return (
-            <div key={index} className="flex items-center justify-between gap-4 py-1">
-              <span className="text-sm text-gray-600">{formattedName}:</span>
-              <span className="font-medium" style={{ color: entry.color }}>
-                {value}
-              </span>
-            </div>
-          )
-        })}
-        {/* Add total if showing percentages */}
-        {!isNumeric && (
-          <div className="border-t mt-2 pt-2">
+      <div className="bg-background p-4 border rounded-lg shadow-lg">
+        <p className="font-semibold text-base border-b pb-2 mb-2">{data.condition}</p>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-muted-foreground">{categories.left}:</span>
+            <span className="font-medium" style={{ color: COLORS.left }}>
+              {Math.abs(data.leftValue)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-muted-foreground">{categories.right}:</span>
+            <span className="font-medium" style={{ color: COLORS.right }}>
+              {data.rightValue}
+            </span>
+          </div>
+          <div className="border-t pt-2 mt-2">
             <div className="flex items-center justify-between gap-4">
-              <span className="text-sm text-gray-600">Total:</span>
-              <span className="font-medium">{payload.reduce((sum, entry) => sum + entry.value, 0).toFixed(1)}%</span>
+              <span className="text-sm font-medium">Total responses:</span>
+              <span className="font-medium">{data.total}</span>
             </div>
           </div>
-        )}
+        </div>
       </div>
     )
   }
-
   return null
 }
 
