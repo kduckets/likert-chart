@@ -229,7 +229,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
               htmlFor="response-column"
               className={`text-sm font-medium ${theme === "dark" ? "text-gray-200" : "text-gray-700"}`}
             >
-              Response Column
+              Compare Column
             </Label>
             <Select value={responseColumn} onValueChange={setResponseColumn}>
               <SelectTrigger id="response-column" className="mt-1">
