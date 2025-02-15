@@ -144,7 +144,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
 
   useEffect(() => {
     setFilters({})
-  }, [responseColumn])
+  }, []) // Updated dependency array
 
   useEffect(() => {
     if (conditionColumn && responseColumn) {
@@ -187,7 +187,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
 
           <div>
             <Label htmlFor="response-column" className="text-sm font-medium text-gray-700">
-              Compare Column
+              Response Column
             </Label>
             <Select value={responseColumn} onValueChange={setResponseColumn}>
               <SelectTrigger id="response-column" className="mt-1">
@@ -305,7 +305,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
                 data={processedData}
                 layout="vertical"
                 margin={{
-                  top: 20,
+                  top: 40,
                   right: 60,
                   bottom: 20,
                   left: 240,
@@ -320,7 +320,9 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
                   tickFormatter={(value) => `${Math.abs(value)}`}
                   stroke="#888"
                   fontSize={12}
+                  tickCount={5}
                 />
+                <XAxis type="number" orientation="top" tickFormatter={() => ""} axisLine={false} tickLine={false} />
                 <YAxis
                   dataKey="condition"
                   type="category"
@@ -336,7 +338,6 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
                 />
                 <Tooltip content={<CustomTooltip categories={categories} />} />
                 <ReferenceLine x={0} stroke="#888" />
-
                 <Bar stackId="stack" dataKey="leftValue" fill={COLORS.left} name={categories.left}>
                   {processedData.map((entry, index) => (
                     <Cell key={`left-${index}`} fill={COLORS.left} />
@@ -347,6 +348,12 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
                     <Cell key={`right-${index}`} fill={COLORS.right} />
                   ))}
                 </Bar>
+                <text x="48%" y={15} textAnchor="end" fill="#333" fontSize={14} fontWeight={500}>
+                  {categories.left}
+                </text>
+                <text x="52%" y={15} textAnchor="start" fill="#333" fontSize={14} fontWeight={500}>
+                  {categories.right}
+                </text>
               </BarChart>
             </ResponsiveContainer>
           </ChartContainer>
