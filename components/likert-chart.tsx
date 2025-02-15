@@ -156,7 +156,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
 
   useEffect(() => {
     setFilters({})
-  }, []) // Removed conditionColumn dependency
+  }, [])
 
   useEffect(() => {
     if (conditionColumn && responseColumn) {
@@ -176,6 +176,24 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
   const activeFilters = Object.entries(filters).filter(([_, values]) => values.length > 0)
 
   const currentColors = theme === "dark" ? COLORS.dark : COLORS.light
+
+  const clearAllFilters = () => {
+    setFilters({})
+  }
+
+  const selectAllForColumn = (column: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      [column]: filterOptions.find((option) => option.column === column)?.values || [],
+    }))
+  }
+
+  const deselectAllForColumn = (column: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      [column]: [],
+    }))
+  }
 
   const ColorKey = () => (
     <div className="flex justify-center items-center space-x-4 mb-4">
@@ -208,7 +226,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
               htmlFor="condition-column"
               className={`text-sm font-medium ${theme === "dark" ? "text-gray-200" : "text-gray-700"}`}
             >
-              Condition Column
+              Y Column
             </Label>
             <Select value={conditionColumn} onValueChange={setConditionColumn}>
               <SelectTrigger id="condition-column" className="mt-1">
@@ -229,7 +247,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
               htmlFor="response-column"
               className={`text-sm font-medium ${theme === "dark" ? "text-gray-200" : "text-gray-700"}`}
             >
-              Compare Column
+              X Column
             </Label>
             <Select value={responseColumn} onValueChange={setResponseColumn}>
               <SelectTrigger id="response-column" className="mt-1">
@@ -278,9 +296,29 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
               <div className="grid grid-cols-2 gap-4 mt-4">
                 {filterOptions.map((option) => (
                   <div key={option.column} className="space-y-2">
-                    <Label className={`text-sm font-medium ${theme === "dark" ? "text-gray-200" : "text-gray-700"}`}>
-                      {option.column}
-                    </Label>
+                    <div className="flex justify-between items-center">
+                      <Label className={`text-sm font-medium ${theme === "dark" ? "text-gray-200" : "text-gray-700"}`}>
+                        {option.column}
+                      </Label>
+                      <div className="space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => selectAllForColumn(option.column)}
+                          className={`text-xs ${theme === "dark" ? "bg-gray-700 hover:bg-gray-600 text-gray-100" : "bg-gray-100 hover:bg-gray-200 text-gray-800"}`}
+                        >
+                          Select All
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => deselectAllForColumn(option.column)}
+                          className={`text-xs ${theme === "dark" ? "bg-gray-700 hover:bg-gray-600 text-gray-100" : "bg-gray-100 hover:bg-gray-200 text-gray-800"}`}
+                        >
+                          Deselect All
+                        </Button>
+                      </div>
+                    </div>
                     <div
                       className={`max-h-40 overflow-y-auto border rounded-md p-2 ${theme === "dark" ? "bg-gray-700" : "bg-gray-50"}`}
                     >
@@ -321,7 +359,7 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
         </AnimatePresence>
 
         {activeFilters.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-4">
+          <div className="flex flex-wrap items-center gap-2 mt-4">
             {activeFilters.map(([column, values]) =>
               values.map((value) => (
                 <Badge
@@ -346,6 +384,14 @@ export default function LikertChart({ headers, data }: LikertChartProps) {
                 </Badge>
               )),
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearAllFilters}
+              className={`ml-2 ${theme === "dark" ? "bg-gray-700 hover:bg-gray-600 text-gray-100" : "bg-gray-100 hover:bg-gray-200 text-gray-800"}`}
+            >
+              Clear All Filters
+            </Button>
           </div>
         )}
       </div>
